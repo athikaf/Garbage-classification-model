@@ -1,62 +1,98 @@
 import streamlit as st
-from PIL import Image
-import requests
-from io import BytesIO
 import torch
-import torchvision.transforms as transforms
-import torchvision.models as models
 import torch.nn as nn
-import torch.nn.functional as F
+import torchvision.transforms as transforms
+from torchvision import models
+from torchvision.models.vision_transformer import vit_b_16
+from PIL import Image
+import seaborn as sns
+import matplotlib.pyplot as plt
+from sklearn.metrics import classification_report, confusion_matrix
+import numpy as np
 
-# Load class names (ensure this matches your training dataset order)
-classes = ['cardboard', 'glass', 'metal', 'paper', 'plastic', 'trash']
-
-# Define model
-class ResNet18Classifier(nn.Module):
-    def __init__(self, num_classes):
-        super().__init__()
-        self.network = models.resnet18(pretrained=True)
-        self.network.fc = nn.Linear(self.network.fc.in_features, num_classes)
-
-    def forward(self, xb):
-        return torch.sigmoid(self.network(xb))
-
-# Load model
-@st.cache(allow_output_mutation=True)
-def load_model():
-    model = ResNet18Classifier(len(classes))
-    model.load_state_dict(torch.load('model.pth', map_location=torch.device('cpu')))
+# ===============================
+# Utility functions
+# ===============================
+@st.cache_resource
+def load_resnet_model(num_classes):
+    model = models.resnet18(pretrained=False)
+    model.fc = nn.Linear(model.fc.in_features, num_classes)
+    model.load_state_dict(torch.load("model.pth", map_location=torch.device("cpu")))
     model.eval()
     return model
 
-model = load_model()
+@st.cache_resource
+def load_vit_model(num_classes):
+    model = vit_b_16(pretrained=False)
+    in_features = model.heads[0].in_features
+    model.heads[0] = nn.Linear(in_features, num_classes)
+    model.load_state_dict(torch.load("vit_model.pth", map_location=torch.device("cpu")))
+    model.eval()
+    return model
 
-# Image transformation (must match training)
-transform = transforms.Compose([
-    transforms.Resize((256, 256)),
-    transforms.ToTensor()
-])
+def predict_image(image, model, classes):
+    transform = transforms.Compose([
+        transforms.Resize((224, 224)),
+        transforms.ToTensor()
+    ])
+    img = transform(image).unsqueeze(0)  # Add batch dimension
+    with torch.no_grad():
+        outputs = model(img)
+        _, prediction = torch.max(outputs, 1)
+    return classes[prediction.item()]
 
-# Title
-st.title("🗑 Garbage Classifier")
-st.markdown("Paste an image URL and this model will predict the type of garbage.")
+def show_metrics(y_true, y_pred, classes, model_name):
+    st.subheader(f"📊 {model_name} Metrics")
+    
+    report = classification_report(y_true, y_pred, target_names=classes, output_dict=True)
+    fig, ax = plt.subplots()
+    sns.heatmap(confusion_matrix(y_true, y_pred), annot=True, fmt="d", xticklabels=classes, yticklabels=classes, cmap="Blues", ax=ax)
+    ax.set_xlabel("Predicted")
+    ax.set_ylabel("Actual")
+    st.pyplot(fig)
 
-# Input
-img_url = st.text_input("Enter image URL:")
+    st.text("Precision, Recall, F1 Score:")
+    for cls in classes:
+        st.text(f"{cls}: {report[cls]}")
 
-if img_url:
+# ===============================
+# Main Streamlit App
+# ===============================
+st.title("♻️ Garbage Classifier App")
+st.write("Classify waste using ResNet18 or Vision Transformer (ViT)")
+
+model_choice = st.selectbox("Choose a Model", ["ResNet18", "ViT (Vision Transformer)"])
+
+classes = ['Cardboard', 'Glass', 'Metal', 'Paper', 'Plastic', 'Trash']
+
+if model_choice == "ResNet18":
+    model = load_resnet_model(len(classes))
+else:
+    model = load_vit_model(len(classes))
+
+uploaded_file = st.file_uploader("Upload an image", type=["jpg", "jpeg", "png"])
+if uploaded_file is not None:
+    img = Image.open(uploaded_file).convert("RGB")
+    st.image(img, caption="Uploaded Image", use_column_width=True)
+
+    if st.button("Classify"):
+        label = predict_image(img, model, classes)
+        st.success(f"Prediction: **{label}**")
+
+# ===============================
+# Optional: Load Validation Metrics
+# ===============================
+if st.checkbox("Show Model Metrics (from validation set)"):
     try:
-        response = requests.get(img_url)
-        image = Image.open(BytesIO(response.content)).convert('RGB')
-        st.image(image, caption="Input Image", use_column_width=True)
+        y_true = torch.load("val_labels.pth")   # Save from notebook
+        y_pred_resnet = torch.load("resnet_preds.pth")
+        y_pred_vit = torch.load("vit_preds.pth")
+        
+        if model_choice == "ResNet18":
+            show_metrics(y_true, y_pred_resnet, classes, "ResNet18")
+        else:
+            show_metrics(y_true, y_pred_vit, classes, "ViT")
 
-        img_tensor = transform(image).unsqueeze(0)  # Add batch dimension
-        with torch.no_grad():
-            outputs = model(img_tensor)
-            _, prediction = torch.max(outputs, dim=1)
-            pred_class = classes[prediction.item()]
+    except FileNotFoundError:
+        st.warning("Metrics not found. Make sure you've saved predictions and true labels from your notebook.")
 
-        st.success(f"Predicted Garbage Category: **{pred_class}**")
-
-    except Exception as e:
-        st.error(f"Could not process image. Error: {e}")
