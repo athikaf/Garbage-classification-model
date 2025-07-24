@@ -1,98 +1,124 @@
 import streamlit as st
 import torch
 import torch.nn as nn
-import torchvision.transforms as transforms
-from torchvision import models
-from torchvision.models.vision_transformer import vit_b_16
+from torchvision import models, transforms
 from PIL import Image
-import seaborn as sns
 import matplotlib.pyplot as plt
-from sklearn.metrics import classification_report, confusion_matrix
+from sklearn.metrics import precision_score, recall_score, f1_score, confusion_matrix, ConfusionMatrixDisplay
 import numpy as np
+import timm
+import torch.nn as nn
 
-# ===============================
-# Utility functions
-# ===============================
+# class ViTSmallClassifier(nn.Module):
+#     def __init__(self, num_classes):
+#         super(ViTSmallClassifier, self).__init__()
+#         self.model = timm.create_model("vit_small_patch16_224", pretrained=False)
+#         self.model.head = nn.Linear(self.model.head.in_features, num_classes)
+
+#     def forward(self, x):
+#         return self.model(x)
+
+class ViTTinyClassifier(nn.Module):
+    def __init__(self, num_classes):
+        super(ViTTinyClassifier, self).__init__()
+        self.model = timm.create_model("vit_tiny_patch16_224", pretrained=False)
+        self.model.head = nn.Linear(self.model.head.in_features, num_classes)
+
+    def forward(self, x):
+        return self.model(x)
+
+
+# --- Wrapper Classes ---
+class ResNetWrapper(nn.Module):
+    def __init__(self, base_model):
+        super(ResNetWrapper, self).__init__()
+        self.network = base_model
+
+    def forward(self, x):
+        return self.network(x)
+
+# class ViTWrapper(nn.Module):
+#     def __init__(self, base_model):
+#         super(ViTWrapper, self).__init__()
+#         self.model = base_model
+
+#     def forward(self, x):
+#         return self.model(x)
+
+# --- Load Models ---
 @st.cache_resource
 def load_resnet_model(num_classes):
-    model = models.resnet18(pretrained=False)
-    model.fc = nn.Linear(model.fc.in_features, num_classes)
-    model.load_state_dict(torch.load("model.pth", map_location=torch.device("cpu")))
+    base_model = models.resnet18(weights=None)
+    base_model.fc = nn.Linear(base_model.fc.in_features, num_classes)
+    model = ResNetWrapper(base_model)
+    model.load_state_dict(torch.load("model.pth", map_location="cpu"))
     model.eval()
     return model
 
 @st.cache_resource
 def load_vit_model(num_classes):
-    model = vit_b_16(pretrained=False)
-    in_features = model.heads[0].in_features
-    model.heads[0] = nn.Linear(in_features, num_classes)
-    model.load_state_dict(torch.load("vit_model.pth", map_location=torch.device("cpu")))
+    model = ViTTinyClassifier(num_classes)
+    model.load_state_dict(torch.load("vit_model.pth", map_location="cpu"))
     model.eval()
     return model
 
-def predict_image(image, model, classes):
+
+# --- Preprocessing ---
+def preprocess_image(image):
     transform = transforms.Compose([
         transforms.Resize((224, 224)),
         transforms.ToTensor()
     ])
-    img = transform(image).unsqueeze(0)  # Add batch dimension
-    with torch.no_grad():
-        outputs = model(img)
-        _, prediction = torch.max(outputs, 1)
-    return classes[prediction.item()]
+    return transform(image).unsqueeze(0)
 
-def show_metrics(y_true, y_pred, classes, model_name):
-    st.subheader(f"📊 {model_name} Metrics")
-    
-    report = classification_report(y_true, y_pred, target_names=classes, output_dict=True)
+# --- Prediction ---
+def predict(model, image_tensor, classes):
+    with torch.no_grad():
+        outputs = model(image_tensor)
+        _, pred = torch.max(outputs, 1)
+    return classes[pred.item()]
+
+# --- Metrics ---
+def display_metrics(y_true, y_pred, model_name):
+    precision = precision_score(y_true, y_pred, average='weighted', zero_division=0)
+    recall = recall_score(y_true, y_pred, average='weighted', zero_division=0)
+    f1 = f1_score(y_true, y_pred, average='weighted', zero_division=0)
+
+    st.markdown(f"### {model_name} Evaluation Metrics")
+    st.write(f"**Precision:** {precision:.4f}")
+    st.write(f"**Recall:** {recall:.4f}")
+    st.write(f"**F1 Score:** {f1:.4f}")
+
+    cm = confusion_matrix(y_true, y_pred)
     fig, ax = plt.subplots()
-    sns.heatmap(confusion_matrix(y_true, y_pred), annot=True, fmt="d", xticklabels=classes, yticklabels=classes, cmap="Blues", ax=ax)
-    ax.set_xlabel("Predicted")
-    ax.set_ylabel("Actual")
+    ConfusionMatrixDisplay(cm).plot(ax=ax)
     st.pyplot(fig)
 
-    st.text("Precision, Recall, F1 Score:")
-    for cls in classes:
-        st.text(f"{cls}: {report[cls]}")
+# --- App UI ---
+st.title("🗑️ Garbage Image Classifier")
+model_choice = st.selectbox("Select a Model", ["ResNet18", "ViT-Small"])
+classes = ['cardboard', 'glass', 'metal', 'paper', 'plastic', 'trash']
 
-# ===============================
-# Main Streamlit App
-# ===============================
-st.title("♻️ Garbage Classifier App")
-st.write("Classify waste using ResNet18 or Vision Transformer (ViT)")
-
-model_choice = st.selectbox("Choose a Model", ["ResNet18", "ViT (Vision Transformer)"])
-
-classes = ['Cardboard', 'Glass', 'Metal', 'Paper', 'Plastic', 'Trash']
-
-if model_choice == "ResNet18":
-    model = load_resnet_model(len(classes))
-else:
-    model = load_vit_model(len(classes))
+model = load_resnet_model(len(classes)) if model_choice == "ResNet18" else load_vit_model(len(classes))
 
 uploaded_file = st.file_uploader("Upload an image", type=["jpg", "jpeg", "png"])
-if uploaded_file is not None:
-    img = Image.open(uploaded_file).convert("RGB")
-    st.image(img, caption="Uploaded Image", use_column_width=True)
 
-    if st.button("Classify"):
-        label = predict_image(img, model, classes)
-        st.success(f"Prediction: **{label}**")
-
-# ===============================
-# Optional: Load Validation Metrics
-# ===============================
-if st.checkbox("Show Model Metrics (from validation set)"):
+if uploaded_file:
     try:
-        y_true = torch.load("val_labels.pth")   # Save from notebook
-        y_pred_resnet = torch.load("resnet_preds.pth")
-        y_pred_vit = torch.load("vit_preds.pth")
-        
-        if model_choice == "ResNet18":
-            show_metrics(y_true, y_pred_resnet, classes, "ResNet18")
-        else:
-            show_metrics(y_true, y_pred_vit, classes, "ViT")
+        image = Image.open(uploaded_file).convert("RGB")
+        st.image(image, caption="Uploaded Image", use_column_width=True)
 
-    except FileNotFoundError:
-        st.warning("Metrics not found. Make sure you've saved predictions and true labels from your notebook.")
+        image_tensor = preprocess_image(image)
+        prediction = predict(model, image_tensor, classes)
+        st.success(f"Predicted Class: **{prediction}**")
 
+    except Exception as e:
+        st.error(f"Image processing failed: {e}")
+
+if st.checkbox("Show model evaluation"):
+    try:
+        y_true = torch.load("val_labels.pth").numpy()
+        y_pred = torch.load("resnet_preds.pth" if model_choice == "ResNet18" else "vit_preds.pth").numpy()
+        display_metrics(y_true, y_pred, model_choice)
+    except Exception as e:
+        st.error(f"Failed to load evaluation data: {e}")
