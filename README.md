@@ -116,5 +116,4 @@ Claude – Assisted with Streamlit UI and prediction integration.
 
 ### 🤝 Contributing
 
-<br />
 Contributions are welcome! Please fork the repository and submit a pull request. For significant changes, open an issue first to discuss what you'd like to change. For any questions or concerns, please feel free to reach out to <a href="https://www.linkedin.com/in/athika-fatima/">Athika Fatima</a>
