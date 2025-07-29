@@ -17,15 +17,15 @@ This project was developed as part of an academic group assignment, focusing on 
 
 ## 📂 Project Structure
 
-├── app.py # Streamlit app for interactive predictions
-├── garbage.ipynb # Main training and evaluation notebook
-├── vit_model.pth # Saved Vision Transformer model
-├── resnet_model.pth # Saved ResNet18 model
-├── val_labels.pth # True labels from validation set
-├── vit_preds.pth # ViT model predictions
-├── resnet_preds.pth # ResNet model predictions
-├── requirements.txt # Python dependencies
-└── README.md # You're here!
+├── app.py # Streamlit app for interactive predictions<br />
+├── garbage.ipynb # Main training and evaluation notebook<br />
+├── vit_model.pth # Saved Vision Transformer model<br />
+├── resnet_model.pth # Saved ResNet18 model<br />
+├── val_labels.pth # True labels from validation set<br />
+├── vit_preds.pth # ViT model predictions<br />
+├── resnet_preds.pth # ResNet model predictions<br />
+├── requirements.txt # Python dependencies<br />
+└── README.md # You're here!<br />
 
 ---
 
@@ -114,5 +114,7 @@ Claude – Assisted with Streamlit UI and prediction integration.
 
 ```
 
-🤝 Contributing
+### 🤝 Contributing
+
+<br />
 Contributions are welcome! Please fork the repository and submit a pull request. For significant changes, open an issue first to discuss what you'd like to change. For any questions or concerns, please feel free to reach out to <a href="https://www.linkedin.com/in/athika-fatima/">Athika Fatima</a>
